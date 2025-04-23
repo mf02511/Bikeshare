@@ -1,0 +1,137 @@
+---
+title: "Baseline Linear Model"
+output: pdf_document
+---
+
+## 1.
+
+Fit a linear model using the response and the continuous predictor variables identified previously in your dataset. Report and interpret the estimated coefficients and their associated standard errors and p-values. Report and interpret the adjusted R squared of the model.
+
+```{r}
+# loda data
+hours = read.csv('data/hour_clean.csv')
+hours = hours[, c("mnth", "workingday", "weathersit", "atemp", "hum", "windspeed", "cnt")]
+```
+
+```{r}
+# one-hot-encode and standardize
+library(fastDummies)
+library(dplyr)
+
+# these are outliers that affect the scaling
+hours$weathersit[hours$weathersit == 4] = 3
+
+hours = dummy_cols(hours, 
+                   select_columns = c("mnth", "weathersit"), 
+                   remove_first_dummy = TRUE, 
+                   remove_selected_columns = TRUE)
+hours = dplyr::select(hours, -cnt, cnt)
+head(hours)
+```
+
+```{r}
+# fit linear model
+model = lm(cnt ~ ., data=hours)
+summary(model)
+```
+
+The linear regression model explains approximately 28.9% of the variation in bike rental counts (Adjusted R² = 0.2886). The temperature (atemp) and humidity (hum) were the strongest continuous predictors: higher temperatures significantly increased rentals, while higher humidity significantly decreased rentals. Wind speed also had a small but significant positive effect. Seasonal effects were evident, with summer months showing lower rental counts relative to January. Some weather condition categories showed significant differences, though not consistently across all levels.
+
+\newpage
+## 2.
+
+Use diagnostic methods to assess the validity of the standard assumptions in your linear model. Use graphics and offer brief comments on what you observe.
+
+```{r}
+# check for homoscedasticity
+par(mfrow = c(1, 1))
+plot(model$fitted.values, residuals(model),
+     main = "Residuals vs Fitted",
+     xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+```
+
+The clear linear boundary observed in the Residuals vs. Fitted plot is likely due to the discrete, non-negative nature of the response variable (cnt). Since bike rentals are count data, applying linear regression — which assumes a continuous response — can produce predictions that do not align with the structure of the data. The plot also shows a distinct funnel shape, where the spread of residuals increases with higher fitted values (even when ignoring the cutoff). This suggests that the assumption of homoscedasticity  is violated. The presence of heteroscedasticity indicates that the linear model may not fully capture the relationship between predictors and the response, especially at higher bike rental counts. Further model refinement or transformation of the response variable may be needed to address this issue.
+
+```{r}
+par(mfrow = c(1, 2))
+qqnorm(residuals(model)); 
+qqline(residuals(model), col = "red")
+hist(residuals(model), 
+     main = "Histogram of Residuals", 
+     breaks = 30)
+```
+
+The Q-Q plot shows some deviation from the diagonal, especially in the upper tail and a bit in the lower tail, indicating that the residuals are not perfectly normally distributed. The histogram of residuals show a right skew. These results suggest that the normality assumption may be violated, particularly at the extremes.
+
+```{r}
+hat_values <- hatvalues(model)
+plot(hat_values, 
+     ylab = "hat values", 
+     main = "Hat Values")
+abline(h = 2 * (ncol(hours) + 1) / nrow(hours), 
+       col = "red")
+```
+```{r}
+# windspeed of the hour with the highest hat value
+hist(hours$windspeed, 
+     xlab="windspeed (normalized)", 
+     ylab="frequency", 
+     main="distribution of windspeed")
+abline(v=hours[which.max(hat_values), ]$windspeed, 
+       col='red')
+text(x = 0.7, 
+     y = 500, 
+     labels = "point with highest hat value", 
+     pos = 3, 
+     col = "red")
+```
+
+The hat values plot shows that most observations have low leverage, clustered below the cutoff threshold. However, a few points exhibit relatively high leverage, suggesting that these observations have unusual predictor values. For example, the point with the highest hat value shown above has a normalized windspeed of 5.4124, which is extremely high compared to the rest of the observations.
+
+```{r}
+stud_resid <- abs(rstudent(model))
+plot(stud_resid, 
+     main = "Studentized Residuals")
+abline(h = qt(0.95, df = nrow(hours) - ncol(hours) - 2), 
+       col = "red")
+```
+
+The plot of studentized residuals against observation index reveals that residual variance increases over time. Given that the data are sorted chronologically, this suggests that the model performs less consistently in the later part of the dataset , potentially indicating more variation in bike rental counts during the second year (2012). This observation may reflect underlying time-dependent factors, specifically a year-dependent shift in rental pattern. Since the linear model did not use year as a feature (we only used month), including the year feature may significantly improve the model performance.
+
+```{r}
+# influential points with cook's distance
+plot(model, which = 4)
+```
+```{r}
+# most influential points
+hours[c(14051, 14060, 14061),]
+```
+```{r}
+hist(hours[hours$mnth_8 > 0,]$atemp, 
+     main="Distribution of atemp in August", 
+     xlab="atemp (normalized feeling temp)", 
+     ylab="frequency")
+abline(v=0.2424, col="red")
+text(x = 0.35, 
+     y = 100, 
+     labels = "influential points", 
+     pos = 3, 
+     col = "red")
+```
+
+The Cook’s Distance plot reveals that indices 14051, 14060, and 14061 have the highest influence on the regression. These observations all fall on the same day (2012-08-17). Upon closer inspection, we believe this is possibly a data entry error since all three points happen to have the same exact normalized atemp value of 0.2424, which is extremely unusual in August as shown in the histogram above. In addition, cross-referencing the original data with the actual temperature, we found that the actual normalized temperature on the same day at 9AM was 0.74, which seems consistent with the trend in August. We believe by replacing these atemp values with the actual temperature, we may reduce some error in our model.
+
+```{r}
+round(cor(hours[, -ncol(hours)]), 2)
+```
+
+We do not see any multicollinearity in the predictor variables. The pairwise correlations shown above never exceed 0.41, which indicates very low linear correlations between the variables.
+
+## Contribution Statement
+
+Members: Ashley Ho & Mizuho Fukuda
+
+1. We discussed ideas for encoding and transforming the variables before fitting the linear regression. We also observed the outputs together and discussed how to interpret each value. The code and interpretations were written by Mizuho.
+1. We discussed each part of the diagnostics and gave our interpretations. The coding and writing was done by both as well (taking turns).
