@@ -1,0 +1,267 @@
+---
+title: "Combined Linear Model"
+output: pdf_document
+---
+
+## 1.
+
+Fit a linear model using the response and the discrete predictor variables identified previously in your dataset. Report and interpret the estimated coefficients and their associated standard errors and p-values. Use diagnostic methods to assess the validity of the standard assumptions. Use graphics and offer brief comments on what you observe.
+
+The discrete variables we decided to use for our model are:
+- mnth
+- workingday
+- weathersit
+
+```{r}
+# loda data
+hours_clean = read.csv('../data/hour_clean.csv')
+hours_dis = hours_clean[, c("mnth", "workingday", "weathersit", "cnt")]
+```
+
+```{r}
+# one-hot-encode and standardize
+library(fastDummies)
+library(dplyr)
+
+# there is only one instance of 4 in weathersit so we replace it with 3.
+hours_dis$weathersit[hours_dis$weathersit == 4] = 3
+
+# one-hot-encode
+hours_dis = dummy_cols(hours_dis, 
+                   select_columns = c("mnth", "weathersit"), 
+                   remove_first_dummy = TRUE, 
+                   remove_selected_columns = TRUE)
+hours_dis = dplyr::select(hours_dis, -cnt, cnt)
+head(hours_dis)
+```
+
+```{r}
+# fit linear model
+model_dis = lm(cnt ~ ., data=hours_dis)
+summary(model_dis)
+```
+
+The linear regression model explains approximately 9.17% of the variation in bike rental counts (Adjusted R² = 0.09172), which indicates a poor model. The coefficients indicate that working days are associated with an increase of about 11 rentals, while summer months like June, July, and August show substantially higher rental counts compared to January. Weather situations also play a significant role: less favorable conditions (conditions 2 and 3) are linked to significant drops in rentals, with light rain reducing counts by about 88. All predictors in the model are statistically significant, indicating they have meaningful associations with rental activity.
+
+```{r}
+# check for homoscedasticity
+par(mfrow = c(1, 1))
+plot(model_dis$fitted.values, residuals(model_dis),
+     main = "Residuals vs Fitted",
+     xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+```
+
+The residuals vs. fitted plot reveals a distinct fan shape, where the spread of residuals increases with higher fitted values. This pattern indicates heteroscedasticity which violates a key assumption of linear regression. This can lead to biased standard errors and unreliable significance tests.
+
+```{r}
+par(mfrow = c(1, 2))
+qqnorm(residuals(model_dis)); 
+qqline(residuals(model_dis), col = "red")
+hist(residuals(model_dis), 
+     main = "Histogram of Residuals", 
+     breaks = 30)
+```
+
+The Q-Q plot shows some deviation from the diagonal, especially in the upper tail and also some in the lower tail, indicating that the residuals are not perfectly normally distributed. The histogram of residuals show a right skew. These results suggest that the normality assumption may be violated, particularly at the extremes.
+
+```{r}
+hat_values <- hatvalues(model_dis)
+plot(hat_values, 
+     ylab = "hat values", 
+     main = "Hat Values",
+     ylim = c(0, 0.002))
+abline(h = 2 * (ncol(hours_dis) + 1) / nrow(hours_dis), 
+       col = "red")
+```
+
+The plot of hat values indicates that leverage is evenly distributed across observations, with no points exceeding the typical high-leverage threshold. This pattern is expected since the model only includes categorical predictors, which group observations into repeated and similar patterns. No single data point exerts disprportionately high influence on its own fitted value, suggesting that the dataset does not contain influential outliers in terms of leverage.
+
+```{r}
+stud_resid <- abs(rstudent(model_dis))
+plot(stud_resid, 
+     main = "Studentized Residuals")
+abline(h = qt(0.95, df = nrow(hours_dis) - ncol(hours_dis) - 2), 
+       col = "red")
+```
+
+The plot of studentized residuals against observation index shows that residual variance increases as the index increases. Given that the data are sorted chronologically, this suggests that the model performs less consistently in the later part of the dataset, potentially indicating more variation in bike rental counts during the second year (2012).
+
+```{r}
+# influential points with cook's distance
+plot(model_dis, which = 4)
+```
+```{r}
+# most influential points
+hours_dis[c(13149, 13677, 15140),]
+```
+```{r}
+hist(hours_dis$cnt, 
+     main="Distribution of rental counts", 
+     xlab="rental count", 
+     ylab="frequency")
+abline(v=819, col="red")
+abline(v=891, col="red")
+abline(v=856, col="red")
+
+text(x = 800, 
+     y = 1000, 
+     labels = "influential points", 
+     pos = 2, 
+     col = "red")
+```
+
+The Cook’s Distance plot reveals that indices 13149, 13677, and 15140 have the highest influence on the regression. Since previous diagnostics of hat values did not reveal any unusually high leverage predictor combinations, it is likely that these influential points arise from extremely high response values, i.e. rental counts that are much higher than typical observations. This is supported by the histogram of rental count distribution shown above (the influential points are marked in red). These points may disproportionately affect the model fit and parameter estimates, so it may be worth examining them more closely or considering transformations.
+
+## 2.
+
+Fit a linear model combining continuous and discrete predictors, including diagnostics. Compare this model to the previous models using only continuous or only discrete variables
+
+```{r}
+hours = hours_clean[, c("yr", "mnth", "workingday", "weathersit", "atemp", "hum", "windspeed", "cnt")]
+```
+
+```{r}
+# one-hot-encode and standardize
+library(fastDummies)
+library(dplyr)
+
+# these are outliers that affect the scaling
+hours$weathersit[hours$weathersit == 4] = 3
+
+hours = dummy_cols(hours, 
+                   select_columns = c("mnth", "weathersit"), 
+                   remove_first_dummy = TRUE, 
+                   remove_selected_columns = TRUE)
+hours = dplyr::select(hours, -cnt, cnt)
+head(hours)
+```
+
+```{r}
+# fit linear model
+model = lm(cnt ~ ., data=hours)
+summary(model)
+```
+
+This regression model, which incorporates both continuous and categorical predictors (as well as the year variable that we decided to add), explains approximately 33% of the variability in hourly bike rental counts. Among the most influential predictors are atemp (positively associated) and hum (negatively associated), indicating weather conditions strongly affect ridership. The year indicator suggests usage increased in 2012 compared to 2011. Interestingly, some summer months (like July and August) show negative associations with rental count, which may reflect unaccounted interactions or overlapping seasonal effects. The weather situation variables showed mixed results, with misty conditions unexpectedly increasing rentals and heavier weather showing no significant impact. Overall, the model performs better than the versions with only categorical variables or only continuous variables, but still leaves considerable variance unexplained, hinting at the need for additional predictors or a different type of model.
+
+
+```{r}
+# check for homoscedasticity
+par(mfrow = c(1, 1))
+plot(model$fitted.values, residuals(model),
+     main = "Residuals vs Fitted",
+     xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+```
+
+The clear linear boundary observed in the Residuals vs. Fitted plot is likely due to the discrete, non-negative nature of the response variable (cnt). Since bike rentals are count data, applying linear regression, which assumes a continuous response, can produce predictions that do not align with the structure of the data. The plot also shows a distinct funnel shape, where the spread of residuals increases with higher fitted values (even when ignoring the cutoff). This suggests that the assumption of homoscedasticity  is violated. The presence of heteroscedasticity indicates that the linear model may not fully capture the relationship between predictors and the response, especially at higher bike rental counts. Further model refinement or transformation of the response variable may be needed to address this issue.
+
+```{r}
+par(mfrow = c(1, 2))
+qqnorm(residuals(model)); 
+qqline(residuals(model), col = "red")
+hist(residuals(model), 
+     main = "Histogram of Residuals", 
+     breaks = 30)
+```
+
+The Q-Q plot shows some deviation from the diagonal, especially in the upper tail and a bit in the lower tail, indicating that the residuals are not perfectly normally distributed. The histogram of residuals show a right skew. These results suggest that the normality assumption may be violated, particularly at the extremes.
+
+```{r}
+hat_values <- hatvalues(model)
+plot(hat_values, 
+     ylab = "hat values", 
+     main = "Hat Values")
+abline(h = 2 * (ncol(hours) + 1) / nrow(hours), 
+       col = "red")
+```
+```{r}
+# windspeed of the hour with the highest hat value
+hist(hours$windspeed, 
+     xlab="windspeed (normalized)", 
+     ylab="frequency", 
+     main="distribution of windspeed")
+abline(v=hours[which.max(hat_values), ]$windspeed, 
+       col='red')
+text(x = 0.7, 
+     y = 500, 
+     labels = "point with highest hat value", 
+     pos = 3, 
+     col = "red")
+```
+
+The hat values plot shows that most observations have low leverage, clustered below the cutoff threshold. However, a few points exhibit relatively high leverage, suggesting that these observations have unusual predictor values. For example, the point with the highest hat value shown above has a normalized windspeed of 5.4124, which is extremely high compared to the rest of the observations.
+
+```{r}
+stud_resid <- abs(rstudent(model))
+plot(stud_resid, 
+     main = "Studentized Residuals")
+abline(h = qt(0.95, df = nrow(hours) - ncol(hours) - 2), 
+       col = "red")
+```
+
+The plot of studentized residuals against observation index reveals that residual variance increases over time. As mentioned previously given that the data are sorted chronologically, this suggests that the model performs less consistently in the later part of the dataset, potentially indicating more variation in bike rental counts during the second year (2012).
+
+```{r}
+# influential points with cook's distance
+plot(model, which = 4)
+```
+```{r}
+# most influential points
+hours[c(14051, 14060, 14061),]
+```
+```{r}
+hist(hours[hours$mnth_8 > 0,]$atemp, 
+     main="Distribution of atemp in August", 
+     xlab="atemp (normalized feeling temp)", 
+     ylab="frequency")
+abline(v=0.2424, col="red")
+text(x = 0.35, 
+     y = 100, 
+     labels = "influential points", 
+     pos = 3, 
+     col = "red")
+```
+
+The Cook’s Distance plot reveals that indices 14051, 14060, and 14061 have the highest influence on the regression. These observations all fall on the same day (2012-08-17). Upon closer inspection, we believe this is possibly a data entry error since all three points happen to have the same exact normalized atemp value of 0.2424, which is extremely unusual in August as shown in the histogram above. In addition, cross-referencing the original data with the actual temperature, we found that the actual normalized temperature on the same day at 9AM was 0.74, which seems consistent with the trend in August. We believe by replacing these atemp values with the actual temperature, we may reduce some error in our model.
+
+```{r}
+round(cor(hours[, -ncol(hours)]), 2)
+```
+
+We do not see any multicollinearity in the predictor variables. The pairwise correlations shown above never exceed 0.41, which indicates very low linear correlations between the variables.
+
+
+### Comparison
+
+- Model 1: Continuous-only predictors (atemp, hum, windspeed)
+  - Adjusted R² = 0.2518
+  - atemp and hum are strong predictors; windspeed has a weaker but significant effect.
+  - Residuals show heteroscedasticity (funnel shape) and right-skewed distribution, violating key assumptions.
+  - Some high-leverage points driven by extreme predictor values (high windspeed).
+  - Influential points linked to both extreme windspeed and response values.
+- Model 2: Discrete-only predictors (mnth, workingday, weathersit)
+  - Adjusted R² = 0.0917
+  - Summer months (July, August) associated with higher rentals; worse weather reduces rentals.
+  - Homoscedasticity assumption violated; residuals still skewed and non-normal.
+  - Low leverage across all points due to repeated patterns in categorical variables.
+  - Influential points arise from extreme rental counts, not predictor outliers.
+- Model 3: Combined model (all above + yr)
+  - Adjusted R² = 0.3307
+  - Combines strengths of both weather and temporal predictors; yr captures growth from 2011 to 2012.
+  - Residual plots still reveal heteroscedasticity and non-normality, especially at higher fitted values.
+  - Some high-leverage points tied to unusual inputs (abnormally low atemp in August).
+  - Influential points reflect both data entry issues and extreme responses.
+
+Overall, the combined model outperforms the continuous-only and discrete-only models in explaining variation in bike rental counts. However, all models show violations of key linear regression assumptions, particularly heteroscedasticity and non-normal residuals, suggesting that further improvements could be achieved through data transformation, outlier handling, or by using more flexible modeling approaches.
+
+
+## Contribution Statement
+
+Members: Ashley Ho & Mizuho Fukuda
+
+1. We discussed ideas for which discrete variables to include in our data together. We also observed the outputs together and discussed how to interpret each value. The code and interpretations were written by Mizuho.
+1. We discussed how to implement and interpret each part together. We talked about the differences in the models and drew the conclusion together. The coding and writing was done by Ashley.
