@@ -1,0 +1,109 @@
+---
+title: "Standard Errors Bootstrapping"
+output: pdf_document
+---
+
+## 1.
+
+Choose one of the multiple regression fits you performed in HW3 or HW4 where you observed violations of the standard assumptions, such as nonlinearity, multicollinearity, heteroscedasticity, etc. Report the standard errors of the model coefficients as automatically provided by the linear model fit under the standard assumptions.
+
+For this question, we choose the linear model using combined continuous and discrete predictors from HW4, which violated the standard assumption of homoscedasticity. First, we load in the data:
+
+```{r}
+hours_clean = read.csv('../data/hour_clean.csv')
+hours = hours_clean[, c("yr", "mnth", "workingday", "weathersit", "atemp", "hum", "windspeed", "cnt")]
+```
+
+Then, we preprocess the data and fit the linear model:
+
+```{r}
+# one-hot-encode and standardize
+library(fastDummies)
+library(dplyr)
+
+# these are outliers that affect the scaling
+hours$weathersit[hours$weathersit == 4] = 3
+
+hours = dummy_cols(hours, 
+                   select_columns = c("mnth", "weathersit"), 
+                   remove_first_dummy = TRUE, 
+                   remove_selected_columns = TRUE)
+hours = dplyr::select(hours, -cnt, cnt)
+head(hours)
+```
+
+```{r}
+model = lm(cnt ~ ., data=hours)
+summary(model)
+```
+
+The summary output above provides the model coefficients and their standard errors (in the `Std. Error` column) as provided by the linear model fit under the standard assumptions. For example, the estimated coefficient for `atemp` is 543.034 with a standard error of 12.878. In HW4, we saw that this model observes heteroscedasticity, meaning the variance of residuals is not constant across fitted values. Due to this heteroscedasticity, the standard errors reported above may be biased and unreliable, which affects the accuracy of t-values and p-values for inference.
+
+## 2.
+
+Estimate the standard errors of the coefficients by bootstrapping. Decide and explain whether it is appropriate to resample cases or residuals. Compare to the classical estimates from Part (a).
+
+Since we observed heteroscedasticity in the model, it is appropriate to resample cases, since resampling residuals assumes homoscedasticity. Now, we use the `boot` `R` package to perform the bootstrapping 1000 times:
+
+```{r}
+library(boot)
+
+boot_fn = function(data, indices) {
+  resample = data[indices, ]
+  model = lm(cnt ~ ., data = resample)
+  return(coef(model))
+}
+
+set.seed(123)
+boot_results = boot(data = hours, statistic = boot_fn, R = 1000)
+boot_results
+```
+
+Here is a table and side-by-side barplot comparing the results of the bootstrap with the classical:
+
+| Coefficient     | Classical SE | Bootstrap SE |
+|----------------|--------------|---------------|
+| (Intercept)     | 7.579        | 6.733         |
+| yr              | 2.277        | 2.113         |
+| workingday      | 2.444        | 2.252         |
+| atemp           | 12.878       | 13.198        |
+| hum             | 7.177        | 7.438         |
+| windspeed       | 9.955        | 9.772         |
+| mnth_2          | 5.759        | 4.067         |
+| mnth_3          | 5.852        | 4.667         |
+| mnth_4          | 6.258        | 5.456         |
+| mnth_5          | 7.069        | 6.507         |
+| mnth_6          | 7.589        | 7.706         |
+| mnth_7          | 8.193        | 8.013         |
+| mnth_8          | 7.773        | 7.800         |
+| mnth_9          | 7.253        | 7.262         |
+| mnth_10         | 6.461        | 6.187         |
+| mnth_11         | 5.851        | 4.947         |
+| mnth_12         | 5.703        | 4.417         |
+| weathersit_2    | 2.767        | 2.637         |
+| weathersit_3    | 4.621        | 4.325         |
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+classic_se = summary(model)$coefficients[, 'Std. Error']
+
+data_se = data.frame(
+  coefficient = names(classic_se),
+  classical_se = as.numeric(classic_se),
+  bootstrap_se = apply(boot_results$t, 2, sd)
+)
+
+data_long <- data_se %>%
+  gather(key = "method", value = "se", classical_se, bootstrap_se)
+
+ggplot(data_long, aes(x = coefficient, y = se, fill = method)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  coord_flip() +  # horizontal
+  labs(x = "Coefficient", y = "Standard Error", title = "Comparison of Classical and Bootstrap SEs") 
+```
+
+
+For each coefficient, the bootstrap standard error (computed as the standard deviation of 1000 bootstrap estimates) was broadly similar to the classical standard error reported by the linear model. This overall agreement suggests that the standard assumptions for a linear model may hold reasonably well across most predictors However, we do observe moderate differences in the standard errors for the following coefficients: `mnth_5`, `mnth_4`, `mnth_3`, `mnth_2`, `mnth_12`, `mnth_11`, and the intercept, where the bootstrap standard errors are consistently smaller than those obtained from the classical approach. These smaller bootstrap standard errors may suggest that the classical method is overestimating the uncertainty in these coefficient estimates.
