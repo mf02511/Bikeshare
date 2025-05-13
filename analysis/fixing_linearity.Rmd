@@ -1,0 +1,99 @@
+---
+title: "Fixing Linearity"
+output: pdf_document
+---
+
+## 1.
+
+Fix the diagnostic issues you identified in HW3 and HW4 in your dataset, especially linearity and multi-collinearity. Consider univariate and multivariate variable transformations, polynomial regression, PCA, and other feature engineering methods if desired.
+
+```{r}
+library(fastDummies)
+library(dplyr)
+
+# data
+hours_clean = read.csv("../data/hour_clean.csv")
+hours = hours_clean[, c("yr", "mnth", "workingday", "weathersit", "atemp", "hum", "windspeed", "cnt")]
+hours$weathersit[hours$weathersit == 4] = 3
+hours = dummy_cols(hours, 
+                   select_columns = c("mnth", "weathersit"), 
+                   remove_first_dummy = TRUE, 
+                   remove_selected_columns = TRUE)
+hours = dplyr::select(hours, -cnt, cnt)
+head(hours)
+```
+
+```{r}
+# original linear model
+model = lm(cnt ~ ., data=hours)
+summary(model)
+```
+
+```{r}
+# model with transformations
+model_fixed <- lm(sqrt(cnt) ~ poly(atemp, 3) * poly(hum, 3) + poly(windspeed, 2) + . - atemp - hum, data = hours)
+summary(model_fixed)
+```
+
+The model above applies the following transformations:
+
+- Square root the response variable `cnt`
+- Create polynomial features from `atemp` (degree = 3), `hum` (degree = 3), and `windspeed` (degree = 2)
+- Create multivariate features between polynomial `atemp` and `hum`
+
+
+\newpage
+## 2
+
+Compare your old model with your new model in terms of R squared, variance of the coefficients and
+interpretation of the coefficients.
+
+### Adjusted $R^2$
+
+- Original model: 0.3307
+- Fixed model: 0.3775
+
+The fixed model explains about 4.7% more variance in the response. While the scale of the response changed (from cnt to sqrt(cnt)), the improvement indicates a better fit to the underlying structure of the data.
+
+### Variance of Coefficients
+
+- Original model: coefficients like `atemp`, `hum`, and `windspeed` were estimated with relatively low variance, but the residuals showed strong nonlinearity and heteroscedasticity, which can make estimates misleading.
+
+- Fixed model: the addition of polynomial terms and interactions increased the number of coefficients, but the use of polynomials helped reduce multicollinearity and kept standard errors reasonably low.
+
+Despite more predictors, variance inflation was controlled, and important terms remained significant, improving model robustness.
+
+### Interpretation of Coefficients
+
+- Original model: Coefficients were directly interpretable:
+
+- Fixed model: transformed response (sqrt(cnt)) and use of polynomial features makes interpretation less intuitive. However, the model captures non-linear and interactive effects more accurately, leading to better predictive power and more valid inference.
+
+While the original model offered easier interpretability, it failed to meet key linear regression assumptions. The revised model improves goodness of fit, reduces residual skew and heteroscedasticity, and more accurately reflects the complex nonlinear relationships between predictors — especially temperature and humidity — at the cost of simpler interpretation.
+
+```{r, fig.width=5, fig.height=5}
+par(mfrow = c(2, 2))
+qqnorm(residuals(model), main="Normal Q-Q Plot (original)"); 
+qqline(residuals(model), col = "red")
+hist(residuals(model), 
+     main = "Histogram of Residuals (original)", 
+     breaks = 30)
+qqnorm(residuals(model_fixed), main="Normal Q-Q Plot (fixed model)"); 
+qqline(residuals(model_fixed), col = "red")
+hist(residuals(model_fixed), 
+     main = "Histogram of Residuals (fixed model)", 
+     breaks = 30)
+```
+
+The residual diagnostics show significant improvement after applying the transformations. In the original model, residuals exhibited non-normality and heavy tails, as seen in the Q-Q plot and histogram. The fixed model, however, yielded residuals that closely follow a normal distribution with much tighter spread and improved symmetry.
+
+
+
+
+
+## Contribution Statement
+
+Members: Ashley Ho & Mizuho Fukuda
+
+1. We discussed and experimented with different transformations together in person. We took turns coding.
+1. We discussed how to interpret our results and wrote in the markdown together.
