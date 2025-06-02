@@ -1,0 +1,86 @@
+---
+title: "Variable Selection and Classification"
+output: pdf_document
+---
+
+## 1.
+
+Consider the features and response that you identified or created in the previous HW. Use variable selection to choose a reduced model that offers a reasonable balance between predictive ability and interpretation.
+
+```{r}
+library(fastDummies)
+library(dplyr)
+
+# data
+hours_clean = read.csv("../data/hour_clean.csv")
+hours = hours_clean[, c("yr", "mnth", "workingday", "weathersit", "atemp", "hum", "windspeed", "cnt")]
+hours$weathersit[hours$weathersit == 4] = 3
+hours = dummy_cols(hours, 
+                   select_columns = c("mnth", "weathersit"), 
+                   remove_first_dummy = TRUE, 
+                   remove_selected_columns = TRUE)
+hours = dplyr::select(hours, -cnt, cnt)
+head(hours)
+```
+
+```{r}
+# current model
+
+model = lm(sqrt(cnt) ~ poly(atemp, 3) * poly(hum, 3) + poly(windspeed, 2) + . - atemp - hum, data = hours)
+summary(model)
+```
+
+```{r}
+# variable selection with AIC
+step_aic = step(model, direction = "both")
+summary(step_aic)
+
+```
+
+```{r}
+# variable selection with BIC
+
+n = nrow(hours)
+step_bic = step(model, direction = "both", k = log(n))
+summary(step_bic)
+
+```
+
+
+After running stepwise variable selection with both AIC and BIC, we selected a reduced model using BIC, which retained 27 predictors. The model explains approximately 37.75% of the variance in the square root of hourly bike counts. Key predictors include atemp, hum, windspeed, month, year, and their interactions. Notably, ridership increased substantially from 2011 to 2012 (yr coefficient = 2.298, p < 0.001) and decreased during summer months (mnth_6, mnth_7, mnth_8) likely due to heat or vacations. We also observe strong nonlinear interactions between perceived temperature and humidity, such that extremely hot and humid conditions drastically reduce ridership (poly(atemp, 3)1:poly(hum, 3)1 = –13,380, p < 0.001).
+
+
+\newpage
+## 2
+
+```{r}
+# binarize response variable
+threshold = median(hours$cnt)
+hours$cnt_bin = as.integer(hours$cnt > threshold)
+```
+
+```{r}
+log_reg = glm(cnt_bin ~ poly(atemp, 3) + poly(hum, 3) + poly(windspeed, 
+    2) + yr + mnth_4 + mnth_5 + mnth_6 + mnth_7 + mnth_8 + mnth_10 + 
+    mnth_11 + mnth_12 + weathersit_2 + poly(atemp, 3):poly(hum, 
+    3), family = binomial, data = hours)
+summary(log_reg)
+
+```
+```{r}
+# compute accuracy
+
+probs = predict(log_reg, type = "response")
+preds = ifelse(probs > 0.5, 1, 0)
+accuracy = mean(preds == hours$cnt_bin)
+print(paste("Accuracy:", accuracy))
+```
+
+To binarize the `cnt` (response) column, we used the median as the threashold. We trained a logistic regression model using the same predictors from our final linear model for binary classification. The model achieved an accuracy of 75.22%, indicating strong predictive performance. Temperature, humidity, windspeed, seasonality, and weather conditions were all significant predictors of high demand. In particular, high temperature increased the odds of high demand, but extreme heat combined with high humidity drastically reduced it. The model also captured strong seasonal effects and a marked increase in demand in 2012 compared to 2011.
+
+## Contribution Statement
+
+Members: Ashley Ho & Mizuho Fukuda
+
+1. We implemented and interpreted the results of both variable selection methods together. We took turns coding and writing.
+1. We implemented and interpreted the logistic regression together. We took turns coding and writing.
